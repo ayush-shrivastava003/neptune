@@ -1,0 +1,215 @@
+#[derive(Debug)]
+pub enum Token {
+    Number(f64),
+    String(String),
+    Name(String),
+    // Operators
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    ParOpen,
+    ParClose,
+    Greater,
+    Less,
+    GreraterEqual,
+    LessEqual,
+    Equal,
+    NotEqual,
+    BrackOpen,
+    BrackClose,
+
+    // Control flow
+    If,
+    Else,
+    Not,
+    While,
+    For,
+    Or,
+    And,
+
+    // Variables and assignment
+    Assign,
+    // Increment,
+    // Decrement,
+    FuncDeclare,
+    Declare,
+    Return,
+    Print,
+    Bool(bool)
+}
+
+// struct Token {
+//     token: TokenType,
+//     lexeme: String,
+//     // line: i32,
+//     // column: i32    
+// }
+#[derive(Debug)]
+pub struct Lexer {
+    content: Vec::<char>,
+    index: usize,
+    chr: Option<char>,
+}
+
+impl Lexer {
+    pub fn new(source: String) -> Self {
+        let chars: Vec::<char> = source.chars().collect();
+        let index = 0;
+        let chr = if chars.len() != 0 {
+            chars[index]
+        } else {' '}; // if the file is empty (just in case)
+        Self {
+            content: chars,
+            index: index,
+            chr: Some(chr),
+        }
+    }
+
+    fn unwrap(&self) -> char { // gets character that is hidden behind an option.
+        self.chr.unwrap()
+    }
+
+    fn increment(&mut self) {
+        self.index += 1;
+        if self.index < self.content.len() {
+            let chr = self.content[self.index];
+            self.chr = Some(chr);
+        } else {
+            self.chr = None;
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        if self.index + 1 < self.content.len() {
+            Some(self.content[self.index + 1])
+        } else {
+            None
+        }
+    }
+
+    fn is_peek_equal(&self) -> bool { // checks if the next character is an equal sign.
+        let peek_chr = self.peek();
+        peek_chr != None && peek_chr.unwrap() == '='
+    }
+
+    fn get_word(&mut self) -> Token {
+        let mut word = String::new();
+        while self.chr != None && ( // ik this formatting is disgusting
+            self.unwrap().is_alphanumeric() || 
+            self.unwrap() == '_'
+        ) {
+            word.push(self.unwrap());
+            self.increment();
+        }
+        match word.as_ref() {
+            "if" => Token::If,
+            "else" => Token::Else,
+            "while" => Token::While,
+            "for" => Token::For,
+            "fn" => Token::FuncDeclare,
+            "let" => Token::Declare,
+            "return" => Token::Return,
+            "print" => Token::Print,
+            "or" => Token::Or,
+            "and" => Token::And,
+            "true" => Token::Bool(true),
+            "false" => Token::Bool(false),            
+            _ => Token::Name(word)
+        }
+    }
+
+    fn get_number(&mut self) -> Result<Token, &str> {
+        let mut number = String::new();
+        while self.chr != None && (
+            self.unwrap().is_numeric() ||
+            self.unwrap() == '.'
+        ) {
+            number.push(self.unwrap());
+            self.increment();
+        }
+
+        if number.matches(".").count() > 1 {
+            return Err("Invalid float.")
+        }
+
+        Ok(Token::Number(number.parse::<f64>().unwrap()))
+    }
+
+    fn get_str(&mut self) -> Result<Token, &str> {
+        let mut string = String::new();
+        while self.chr != None && (
+            self.unwrap() != '"'
+        ) {
+            string.push(self.unwrap());
+            self.increment();
+        }
+        if self.chr == None {
+            return Err("Unterminated string.")
+        }
+        println!("str: '{}'", string);
+        Ok(Token::String(string))
+    }
+
+    pub fn tokenize(&mut self) -> Result<Vec::<Token>, String> {
+        let mut tokens: Vec<Token> = Vec::<Token>::new();
+        while self.chr != None {
+            let chr = self.chr.unwrap();
+            match chr { // get ready for a big boy match statement
+                ' ' if chr.is_whitespace() => self.increment(),
+    
+                chr if chr.is_alphabetic() => tokens.push(self.get_word()),
+
+                chr if chr.is_numeric() => tokens.push(self.get_number()?),
+
+                '"' => {
+                    self.increment();
+                    tokens.push(self.get_str()?);
+                },
+                '*' => tokens.push(Token::Multiply),
+                '/' => tokens.push(Token::Divide),
+                '(' => tokens.push(Token::ParOpen),
+                ')' => tokens.push(Token::ParClose),
+                '{' => tokens.push(Token::BrackOpen),
+                '}' => tokens.push(Token::BrackClose),
+                '+' => tokens.push(Token::Plus),
+                '-' => tokens.push(Token::Minus),
+                '>' => {
+                    if self.is_peek_equal() {
+                        tokens.push(Token::GreraterEqual)
+                    } else {
+                        tokens.push(Token::Greater)
+                    } 
+                },
+
+                '<' => {
+                    if self.is_peek_equal() {
+                        tokens.push(Token::LessEqual);
+                    } else {
+                        tokens.push(Token::Less);
+                    }
+                },
+
+                '=' => {
+                    if self.is_peek_equal() {
+                        tokens.push(Token::Equal);
+                    } else {
+                        tokens.push(Token::Assign);
+                    }
+                },
+
+                '!' => {
+                    if self.is_peek_equal() {
+                        tokens.push(Token::NotEqual);
+                    } else {
+                        tokens.push(Token::Not);
+                    }
+                },
+
+                _ => println!("Unkown character: {}", chr)
+            }
+            self.increment();
+        }
+        Ok(tokens)
+    }
+}
