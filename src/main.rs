@@ -15,4 +15,5 @@ fn main() {
         },
         Err(msg) => println!("A problem occured with opening the file: {}", msg)
     }
+    // println!("{}", '\n'.is_whitespace());
 }

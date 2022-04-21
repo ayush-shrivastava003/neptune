@@ -36,7 +36,8 @@ pub enum Token {
     Declare,
     Return,
     Print,
-    Bool(bool)
+    Bool(bool),
+    Separate
 }
 
 // struct Token {
@@ -132,7 +133,8 @@ impl Lexer {
         if number.matches(".").count() > 1 {
             return Err("Invalid float.")
         }
-
+        self.index -= 1;
+        self.chr = Some(self.content[self.index]);
         Ok(Token::Number(number.parse::<f64>().unwrap()))
     }
 
@@ -147,7 +149,6 @@ impl Lexer {
         if self.chr == None {
             return Err("Unterminated string.")
         }
-        println!("str: '{}'", string);
         Ok(Token::String(string))
     }
 
@@ -156,11 +157,13 @@ impl Lexer {
         while self.chr != None {
             let chr = self.chr.unwrap();
             match chr { // get ready for a big boy match statement
-                ' ' if chr.is_whitespace() => self.increment(),
+                chr if chr.is_whitespace() => {}, // skip to increment
     
                 chr if chr.is_alphabetic() => tokens.push(self.get_word()),
 
-                chr if chr.is_numeric() => tokens.push(self.get_number()?),
+                chr if chr.is_numeric() => {
+                    tokens.push(self.get_number()?);
+                },
 
                 '"' => {
                     self.increment();
@@ -174,25 +177,30 @@ impl Lexer {
                 '}' => tokens.push(Token::BrackClose),
                 '+' => tokens.push(Token::Plus),
                 '-' => tokens.push(Token::Minus),
+                ';' => tokens.push(Token::Separate),
                 '>' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token::GreraterEqual)
+                        tokens.push(Token::GreraterEqual);
+                        self.increment();
                     } else {
-                        tokens.push(Token::Greater)
+                        tokens.push(Token::Greater);
                     } 
                 },
 
                 '<' => {
                     if self.is_peek_equal() {
                         tokens.push(Token::LessEqual);
+                        self.increment();
                     } else {
                         tokens.push(Token::Less);
                     }
                 },
 
                 '=' => {
+
                     if self.is_peek_equal() {
                         tokens.push(Token::Equal);
+                        self.increment();
                     } else {
                         tokens.push(Token::Assign);
                     }
@@ -201,12 +209,13 @@ impl Lexer {
                 '!' => {
                     if self.is_peek_equal() {
                         tokens.push(Token::NotEqual);
+                        self.increment();
                     } else {
                         tokens.push(Token::Not);
                     }
                 },
 
-                _ => println!("Unkown character: {}", chr)
+                _ => return Err(format!("Unkown character '{}'", chr)) 
             }
             self.increment();
         }
