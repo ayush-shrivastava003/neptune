@@ -1,51 +1,5 @@
-#[derive(Debug)]
-pub enum Token {
-    Number(f64),
-    String(String),
-    Name(String),
-    // Operators
-    Plus,
-    Minus,
-    Multiply,
-    Divide,
-    ParOpen,
-    ParClose,
-    Greater,
-    Less,
-    GreraterEqual,
-    LessEqual,
-    Equal,
-    NotEqual,
-    BrackOpen,
-    BrackClose,
+use crate::token::Token;
 
-    // Control flow
-    If,
-    Else,
-    Not,
-    While,
-    For,
-    Or,
-    And,
-
-    // Variables and assignment
-    Assign,
-    // Increment,
-    // Decrement,
-    FuncDeclare,
-    Declare,
-    Return,
-    Print,
-    Bool(bool),
-    Separate
-}
-
-// struct Token {
-//     token: TokenType,
-//     lexeme: String,
-//     // line: i32,
-//     // column: i32    
-// }
 #[derive(Debug)]
 pub struct Lexer {
     content: Vec::<char>,
@@ -120,7 +74,7 @@ impl Lexer {
         }
     }
 
-    fn get_number(&mut self) -> Result<Token, &str> {
+    fn get_number(&mut self) -> Result<Token, String> {
         let mut number = String::new();
         while self.chr != None && (
             self.unwrap().is_numeric() ||
@@ -131,14 +85,14 @@ impl Lexer {
         }
 
         if number.matches(".").count() > 1 {
-            return Err("Invalid float.")
+            return Err(String::from("Invalid float."))
         }
         self.index -= 1;
         self.chr = Some(self.content[self.index]);
         Ok(Token::Number(number.parse::<f64>().unwrap()))
     }
 
-    fn get_str(&mut self) -> Result<Token, &str> {
+    fn get_str(&mut self) -> Result<Token, String> {
         let mut string = String::new();
         while self.chr != None && (
             self.unwrap() != '"'
@@ -147,12 +101,12 @@ impl Lexer {
             self.increment();
         }
         if self.chr == None {
-            return Err("Unterminated string.")
+            return Err(String::from("Unterminated string."))
         }
         Ok(Token::String(string))
     }
 
-    pub fn tokenize(&mut self) -> Result<Vec::<Token>, String> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
         let mut tokens: Vec<Token> = Vec::<Token>::new();
         while self.chr != None {
             let chr = self.chr.unwrap();
@@ -178,6 +132,7 @@ impl Lexer {
                 '+' => tokens.push(Token::Plus),
                 '-' => tokens.push(Token::Minus),
                 ';' => tokens.push(Token::Separate),
+                ',' => tokens.push(Token::Comma),
                 '>' => {
                     if self.is_peek_equal() {
                         tokens.push(Token::GreraterEqual);
