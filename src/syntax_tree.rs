@@ -11,6 +11,11 @@ pub enum Node {
     UnaryOperator {
         operator: Token,
         child: Box<Node>
+    },
+    Logical {
+        left: Box<Node>,
+        operator: Token,
+        right: Box<Node>
     }
 }
 
@@ -18,5 +23,6 @@ pub enum Node {
 pub enum Literal {
     Number(f64),
     Bool(bool),
-    String(String)
+    String(String),
+    None
 }

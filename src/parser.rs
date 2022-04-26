@@ -16,7 +16,6 @@ impl <'a>Parser<'a> {
         if g != None {
             return g.unwrap();
         } else {
-            println!("oh no, g was none :(");
             return &Token::Eof
         }
     }
@@ -27,12 +26,56 @@ impl <'a>Parser<'a> {
         }
     }
 
+    // fn eat(&mut self, expected: &Token, msg: &str) {
+    //     if matches!(self.current(), expected) {
+    //         self.next();
+    //     } else {
+    //         panic!("mismatched tokens: wanted {:?}, got: {:?}", self.current(), expected)
+    //     }
+    // }
+
     pub fn parse(&mut self) -> Result<Node, String> {
         Ok(self.get_expression()?)
     }
 
     pub fn get_expression(&mut self) -> Result<Node, String> {
-        Ok(self.equality()?)
+        Ok(self.or_statement()?)
+    }
+
+    fn or_statement(&mut self) -> Result<Node, String> {
+        let mut expr = self.and_statement()?;
+
+        while matches!(self.current(), &Token::Or) {
+            let operator = self.current().clone();
+            self.next();
+            let right = self.and_statement()?;
+
+            expr = Node::Logical {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right)
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn and_statement(&mut self) -> Result<Node, String> {
+        let mut expr = self.equality()?;
+
+        while matches!(self.current(), &Token::And) {
+            let operator = self.current().clone();
+            self.next();
+            let right = self.equality()?;
+
+            expr = Node::Logical {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right)
+            }
+        }
+
+        Ok(expr)
     }
 
     pub fn equality(&mut self) -> Result<Node, String> {
@@ -40,6 +83,7 @@ impl <'a>Parser<'a> {
 
         while matches!(self.current(), &Token::NotEqual | &Token::Equal) {
             let operator = self.current().clone();
+            self.next();
             let right = self.comparison()?;
 
             expr = Node::BinaryOperator {
@@ -54,14 +98,16 @@ impl <'a>Parser<'a> {
 
     fn comparison(&mut self) -> Result<Node, String> {
         let mut expr = self.term()?;
-        
+
         while matches!(
             self.current(), 
             &Token::Greater |
             &Token::Less |
             &Token::GreraterEqual |
-            &Token::LessEqual) {
+            &Token::LessEqual
+        ) {
                 let operator = self.current().clone();
+                self.next();
                 let right = self.term()?;
                 expr = Node::BinaryOperator {
                     left: Box::new(expr),
@@ -122,7 +168,8 @@ impl <'a>Parser<'a> {
             &Token::Minus
         ) {
             let operator = self.current().clone();
-            let child = self.primary()?;
+            self.next();
+            let child = self.unary()?;
             return Ok(Node::UnaryOperator { operator: operator, child: Box::new(child) })
         } else {
             return Ok(self.primary()?)
@@ -131,9 +178,15 @@ impl <'a>Parser<'a> {
 
     fn primary(&mut self) -> Result<Node, String> {
         let expr = match self.current() {
-            &Token::Number(value) => Node::Literal(Literal::Number(value)),
+            &Token::Number(value) => {Node::Literal(Literal::Number(value))},
             &Token::Bool(value) => Node::Literal(Literal::Bool(value)),
             Token::String(value) => Node::Literal(Literal::String(value.to_string())),
+            &Token::ParOpen => {
+                self.next();
+                let node = self.get_expression()?;
+                // self.eat(&Token::ParClose, "Expected clsoing parenthesis to expression.");
+                node
+            },
             _ => return Err(format!("Couldn't identify this token: {:?}", self.current()))
         };
         self.next();
