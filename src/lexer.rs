@@ -1,4 +1,4 @@
-use crate::token::Token;
+use crate::token::*;
 
 #[derive(Debug)]
 pub struct Lexer {
@@ -57,20 +57,28 @@ impl Lexer {
             word.push(self.unwrap());
             self.increment();
         }
-        match word.as_ref() {
-            "if" => Token::If,
-            "else" => Token::Else,
-            "while" => Token::While,
-            "for" => Token::For,
-            "fn" => Token::FuncDeclare,
-            "let" => Token::Declare,
-            "return" => Token::Return,
-            "print" => Token::Print,
-            "or" => Token::Or,
-            "and" => Token::And,
-            "true" => Token::Bool(true),
-            "false" => Token::Bool(false),            
-            _ => Token::Name(word)
+        let _type = match word.as_ref() {
+            "if" => TokenType::If,
+            "else" => TokenType::Else,
+            "while" => TokenType::While,
+            "for" => TokenType::For,
+            "fn" => TokenType::FuncDeclare,
+            "let" => TokenType::Declare,
+            "return" => TokenType::Return,
+            "print" => TokenType::Print,
+            "or" => TokenType::Or,
+            "and" => TokenType::And,
+            "true" => TokenType::Bool(true),
+            "false" => TokenType::Bool(false), 
+            "none" => TokenType::None,          
+            _ => TokenType::Name(word.clone())
+        };
+
+        self.index -= 1;
+
+        Token {
+            _type,
+            value: word
         }
     }
 
@@ -89,7 +97,10 @@ impl Lexer {
         }
         self.index -= 1;
         self.chr = Some(self.content[self.index]);
-        Ok(Token::Number(number.parse::<f64>().unwrap()))
+        Ok(Token {
+            _type: TokenType::Number(number.parse::<f64>().unwrap()),
+            value: number
+        })
     }
 
     fn get_str(&mut self) -> Result<Token, String> {
@@ -103,7 +114,7 @@ impl Lexer {
         if self.chr == None {
             return Err(String::from("Unterminated string."))
         }
-        Ok(Token::String(string))
+        Ok(Token { _type: TokenType::String(string.clone()), value: string})
     }
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
@@ -123,50 +134,50 @@ impl Lexer {
                     self.increment();
                     tokens.push(self.get_str()?);
                 },
-                '*' => tokens.push(Token::Multiply),
-                '/' => tokens.push(Token::Divide),
-                '(' => tokens.push(Token::ParOpen),
-                ')' => tokens.push(Token::ParClose),
-                '{' => tokens.push(Token::BrackOpen),
-                '}' => tokens.push(Token::BrackClose),
-                '+' => tokens.push(Token::Plus),
-                '-' => tokens.push(Token::Minus),
-                ';' => tokens.push(Token::Separate),
-                ',' => tokens.push(Token::Comma),
+                '*' => tokens.push(Token {_type: TokenType::Multiply, value: "*".to_string() }),
+                '/' => tokens.push(Token {_type: TokenType::Divide, value: "/".to_string() }),
+                '(' => tokens.push(Token {_type: TokenType::ParOpen, value: "(".to_string() }),
+                ')' => tokens.push(Token {_type: TokenType::ParClose, value: ")".to_string() }),
+                '{' => tokens.push(Token {_type: TokenType::BrackOpen, value: "{".to_string() }),
+                '}' => tokens.push(Token {_type: TokenType::BrackClose, value: "}".to_string() }),
+                '+' => tokens.push(Token {_type: TokenType::Plus, value: "+".to_string() }),
+                '-' => tokens.push(Token {_type: TokenType::Minus, value: "-".to_string() }),
+                ';' => tokens.push(Token {_type: TokenType::Separate, value: ";".to_string() }),
+                ',' => tokens.push(Token {_type: TokenType::Comma, value: ",".to_string() }),
                 '>' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token::GreraterEqual);
+                        tokens.push(Token {_type: TokenType::GreraterEqual, value: ">=".to_string() });
                         self.increment();
                     } else {
-                        tokens.push(Token::Greater);
+                        tokens.push(Token {_type: TokenType::Greater, value: ">".to_string() });
                     } 
                 },
 
                 '<' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token::LessEqual);
+                        tokens.push(Token {_type: TokenType::LessEqual, value: "<=".to_string() });
                         self.increment();
                     } else {
-                        tokens.push(Token::Less);
+                        tokens.push(Token {_type: TokenType::Less, value: "<".to_string() });
                     }
                 },
 
                 '=' => {
 
                     if self.is_peek_equal() {
-                        tokens.push(Token::Equal);
+                        tokens.push(Token {_type: TokenType::Equal, value: "==".to_string() });
                         self.increment();
                     } else {
-                        tokens.push(Token::Assign);
+                        tokens.push(Token {_type: TokenType::Assign, value: "=".to_string() });
                     }
                 },
 
                 '!' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token::NotEqual);
+                        tokens.push(Token {_type: TokenType::NotEqual, value: "!=".to_string() });
                         self.increment();
                     } else {
-                        tokens.push(Token::Not);
+                        tokens.push(Token {_type: TokenType::Not, value: "!".to_string() });
                     }
                 },
 
@@ -174,6 +185,7 @@ impl Lexer {
             }
             self.increment();
         }
+        tokens.push(Token {_type: TokenType::Eof, value: "<eof>".to_string()});
         Ok(tokens)
     }
 }

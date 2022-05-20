@@ -1,0 +1,15 @@
+let x = 10;
+
+x = 20;
+let y = 60;
+print y;
+
+if (60 < 70) {
+    print "sixty is less than seventy.";
+} else print "sixty is greater than seventy.";
+
+if (y < x) print "y is less than x."; else print "y is greater than x.";
+
+print y;
+
+

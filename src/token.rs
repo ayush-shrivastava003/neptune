@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub enum TokenType {
     Number(f64),
     String(String),
     Name(String),
@@ -39,5 +39,12 @@ pub enum Token {
     Bool(bool),
     Separate,
     Eof,
-    Comma
+    Comma,
+    None
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    pub _type: TokenType,
+    pub value: String
 }
