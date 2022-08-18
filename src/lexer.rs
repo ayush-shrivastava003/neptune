@@ -1,23 +1,26 @@
 use crate::token::*;
+use crate::error::Error;
+use line_col::LineColLookup;
 
-#[derive(Debug)]
-pub struct Lexer {
+pub struct Lexer<'a> {
     content: Vec::<char>,
     index: usize,
     chr: Option<char>,
+    lc_lookup: LineColLookup<'a>
 }
 
-impl Lexer {
-    pub fn new(source: String) -> Self {
-        let chars: Vec::<char> = source.chars().collect();
+impl <'a>Lexer<'a> {
+    pub fn new(source: &'a String) -> Self {
+        let content: Vec::<char> = source.chars().collect();
         let index = 0;
-        let chr = if chars.len() != 0 {
-            chars[index]
+        let chr = if content.len() != 0 {
+            content[index]
         } else {' '}; // if the file is empty (just in case)
         Self {
-            content: chars,
-            index: index,
+            content,
+            index,
             chr: Some(chr),
+            lc_lookup: LineColLookup::new(&source)
         }
     }
 
@@ -48,7 +51,7 @@ impl Lexer {
         peek_chr != None && peek_chr.unwrap() == '='
     }
 
-    fn get_word(&mut self) -> Token {
+    fn get_word(&mut self, line: usize, column: usize) -> Token {
         let mut word = String::new();
         while self.chr != None && ( // ik this formatting is disgusting
             self.unwrap().is_alphanumeric() || 
@@ -78,11 +81,13 @@ impl Lexer {
 
         Token {
             _type,
-            value: word
+            value: word,
+            line,
+            column
         }
     }
 
-    fn get_number(&mut self) -> Result<Token, String> {
+    fn get_number(&mut self, line: usize, column: usize) -> Result<Token, Error> {
         let mut number = String::new();
         while self.chr != None && (
             self.unwrap().is_numeric() ||
@@ -93,17 +98,19 @@ impl Lexer {
         }
 
         if number.matches(".").count() > 1 {
-            return Err(String::from("Invalid float."))
+            return Err(Error::Syntax(format!("Invalid float. [{}:{}]", line, column)))
         }
         self.index -= 1;
         self.chr = Some(self.content[self.index]);
         Ok(Token {
             _type: TokenType::Number(number.parse::<f64>().unwrap()),
-            value: number
+            value: number,
+            line,
+            column
         })
     }
 
-    fn get_str(&mut self) -> Result<Token, String> {
+    fn get_str(&mut self, line: usize, column: usize) -> Result<Token, Error> {
         let mut string = String::new();
         while self.chr != None && (
             self.unwrap() != '"'
@@ -112,80 +119,82 @@ impl Lexer {
             self.increment();
         }
         if self.chr == None {
-            return Err(String::from("Unterminated string."))
+            return Err(Error::Syntax(format!("Unterminated string. [{}:{}]", line, column)))
         }
-        Ok(Token { _type: TokenType::String(string.clone()), value: string})
+        Ok(Token { _type: TokenType::String(string.clone()), value: string, line, column})
     }
 
-    pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, Error> {
         let mut tokens: Vec<Token> = Vec::<Token>::new();
         while self.chr != None {
             let chr = self.chr.unwrap();
+            let lc = self.lc_lookup.get(self.index);
             match chr { // get ready for a big boy match statement
                 chr if chr.is_whitespace() => {}, // skip to increment
     
-                chr if chr.is_alphabetic() => tokens.push(self.get_word()),
+                chr if chr.is_alphabetic() => tokens.push(self.get_word(lc.0, lc.1)),
 
                 chr if chr.is_numeric() => {
-                    tokens.push(self.get_number()?);
+                    tokens.push(self.get_number(lc.0, lc.1)?);
                 },
 
                 '"' => {
                     self.increment();
-                    tokens.push(self.get_str()?);
+                    tokens.push(self.get_str(lc.0, lc.1)?);
                 },
-                '*' => tokens.push(Token {_type: TokenType::Multiply, value: "*".to_string() }),
-                '/' => tokens.push(Token {_type: TokenType::Divide, value: "/".to_string() }),
-                '(' => tokens.push(Token {_type: TokenType::ParOpen, value: "(".to_string() }),
-                ')' => tokens.push(Token {_type: TokenType::ParClose, value: ")".to_string() }),
-                '{' => tokens.push(Token {_type: TokenType::BrackOpen, value: "{".to_string() }),
-                '}' => tokens.push(Token {_type: TokenType::BrackClose, value: "}".to_string() }),
-                '+' => tokens.push(Token {_type: TokenType::Plus, value: "+".to_string() }),
-                '-' => tokens.push(Token {_type: TokenType::Minus, value: "-".to_string() }),
-                ';' => tokens.push(Token {_type: TokenType::Separate, value: ";".to_string() }),
-                ',' => tokens.push(Token {_type: TokenType::Comma, value: ",".to_string() }),
+                '*' => tokens.push(Token {_type: TokenType::Multiply, value: "*".to_string(), line: lc.0, column: lc.1 }),
+                '/' => tokens.push(Token {_type: TokenType::Divide, value: "/".to_string(), line: lc.0, column: lc.1 }),
+                '(' => tokens.push(Token {_type: TokenType::ParOpen, value: "(".to_string(), line: lc.0, column: lc.1 }),
+                ')' => tokens.push(Token {_type: TokenType::ParClose, value: ")".to_string(), line: lc.0, column: lc.1 }),
+                '{' => tokens.push(Token {_type: TokenType::BrackOpen, value: "{".to_string(), line: lc.0, column: lc.1 }),
+                '}' => tokens.push(Token {_type: TokenType::BrackClose, value: "}".to_string(), line: lc.0, column: lc.1 }),
+                '+' => tokens.push(Token {_type: TokenType::Plus, value: "+".to_string(), line: lc.0, column: lc.1 }),
+                '-' => tokens.push(Token {_type: TokenType::Minus, value: "-".to_string(), line: lc.0, column: lc.1 }),
+                ';' => tokens.push(Token {_type: TokenType::Separate, value: ";".to_string(), line: lc.0, column: lc.1 }),
+                ',' => tokens.push(Token {_type: TokenType::Comma, value: ",".to_string(), line: lc.0, column: lc.1 }),
                 '>' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token {_type: TokenType::GreraterEqual, value: ">=".to_string() });
+                        tokens.push(Token {_type: TokenType::GreraterEqual, value: ">=".to_string(), line: lc.0, column: lc.1 });
                         self.increment();
                     } else {
-                        tokens.push(Token {_type: TokenType::Greater, value: ">".to_string() });
+                        tokens.push(Token {_type: TokenType::Greater, value: ">".to_string(), line: lc.0, column: lc.1 });
                     } 
                 },
 
                 '<' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token {_type: TokenType::LessEqual, value: "<=".to_string() });
+                        tokens.push(Token {_type: TokenType::LessEqual, value: "<=".to_string(), line: lc.0, column: lc.1 });
                         self.increment();
                     } else {
-                        tokens.push(Token {_type: TokenType::Less, value: "<".to_string() });
+                        tokens.push(Token {_type: TokenType::Less, value: "<".to_string(), line: lc.0, column: lc.1 });
                     }
                 },
 
                 '=' => {
 
                     if self.is_peek_equal() {
-                        tokens.push(Token {_type: TokenType::Equal, value: "==".to_string() });
+                        tokens.push(Token {_type: TokenType::Equal, value: "==".to_string(), line: lc.0, column: lc.1 });
                         self.increment();
                     } else {
-                        tokens.push(Token {_type: TokenType::Assign, value: "=".to_string() });
+                        tokens.push(Token {_type: TokenType::Assign, value: "=".to_string(), line: lc.0, column: lc.1 });
                     }
                 },
 
                 '!' => {
                     if self.is_peek_equal() {
-                        tokens.push(Token {_type: TokenType::NotEqual, value: "!=".to_string() });
+                        tokens.push(Token {_type: TokenType::NotEqual, value: "!=".to_string(), line: lc.0, column: lc.1 });
                         self.increment();
                     } else {
-                        tokens.push(Token {_type: TokenType::Not, value: "!".to_string() });
+                        tokens.push(Token {_type: TokenType::Not, value: "!".to_string(), line: lc.0, column: lc.1 });
                     }
                 },
 
-                _ => return Err(format!("Unkown character '{}'", chr)) 
+                _ => return Err(Error::Syntax(format!("Unkown character '{}' [{}:{}]", chr, lc.0, lc.1)))
             }
             self.increment();
         }
-        tokens.push(Token {_type: TokenType::Eof, value: "<eof>".to_string()});
+        let lc = self.lc_lookup.get(self.index);
+        tokens.push(Token {_type: TokenType::Eof, value: "<eof>".to_string(), line: lc.0, column: lc.1 });
         Ok(tokens)
     }
 }

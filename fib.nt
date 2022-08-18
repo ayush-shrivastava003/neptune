@@ -1,21 +1,12 @@
-// Taken from https://craftinginterpreters.com
-// Although simple, this program shows just how excruciatingly slow the Python interpreter is.
-// Also, this has been a helpful test for debugging scoping, as proper scoping is crucial to recursion.
-
 fn fib(n) {
     if (n <= 1) {
-        return n
+        return n;
     }
     return fib(n - 2) + fib(n - 1);
 }
 
-let start = time();
-
-for (let i = 0; i < 25; i++) {
+let i = 0;
+while (i < 20) {
     print fib(i);
+    i = i + 1;
 }
-
-let end_time = time();
-
-print "Total execution time:";
-print end_time - start;

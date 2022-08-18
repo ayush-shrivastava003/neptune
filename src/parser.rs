@@ -1,5 +1,6 @@
 use crate::token::*;
-use crate::syntax_tree::*;
+use crate::ast::*;
+use crate::error::Error;
 
 pub struct Parser<'a> {
     tokens:  &'a Vec<Token>,
@@ -34,37 +35,56 @@ impl <'a>Parser<'a> {
     }
 
     #[allow(unused_variables)] // for some reason my IDE complains about unused variables
-    fn eat(&mut self, expected: &TokenType, msg: &str) {
-        if &self.current()._type == expected || matches!(&self.current()._type, &TokenType::Name(_)) {
-            self.next();
-        } else {
-            panic!("{} \x1b[32m{:?}\x1b[0m",  msg, &self.current())
+    fn eat(&mut self, expected: &TokenType, msg: &str) -> Result<(), Error> {
+        match &self.current()._type {
+            &TokenType::Name(_) => {
+                match expected {
+                    &TokenType::Name(_) => {
+                        return Ok(self.next());
+                    }
+                    _ => return Err(Error::Syntax(format!("{} [{}:{}]", msg, self.current().line, self.current().column)))
+                }
+            }
+            _ => {
+                match expected {
+                    &TokenType::Name(_) => {
+                        panic!("{}", msg)
+                    },
+                    _ => {
+                        if &self.current()._type == expected {
+                            return Ok(self.next())
+                        } else {
+                            return Err(Error::Syntax(format!("{} [{}:{}]", msg, self.current().line, self.current().column)))
+                        }
+                    }
+                }
+            }
         }
     }
 
-    pub fn parse(&mut self) -> Result<Node, String> {
+    pub fn parse(&mut self) -> Result<Vec<Node>, Error> {
         let mut nodes = Vec::<Node>::new();
 
         while self.current()._type != TokenType::Eof {
             nodes.push(self.statement()?);
         }
 
-        Ok(Node::Block(nodes))
+        Ok(nodes)
     }
 
-    fn code_block(&mut self) -> Result<Node, String> {
+    fn code_block(&mut self) -> Result<Node, Error> {
         let mut nodes = Vec::<Node>::new();
-        self.eat(&TokenType::BrackOpen, "Expected open bracket to code block.");
+        self.eat(&TokenType::BrackOpen, "Expected open bracket to code block.")?;
 
         while self.current()._type != TokenType::BrackClose {
             nodes.push(self.statement()?);
         }
 
-        self.eat(&TokenType::BrackClose, "Expected closing bracket to code block.");
+        self.eat(&TokenType::BrackClose, "Expected closing bracket to code block.")?;
         Ok(Node::Block(nodes))
     }
 
-    fn statement(&mut self) -> Result<Node, String> {
+    fn statement(&mut self) -> Result<Node, Error> {
         return match self.current()._type {
             TokenType::Declare => self.declare_var(),
             TokenType::Name(_) => {
@@ -72,7 +92,9 @@ impl <'a>Parser<'a> {
                 if peek != None && matches!(peek.unwrap()._type, TokenType::Assign) { // TODO: increment & decrement
                     self.assign()
                 } else {
-                    self.get_expression()
+                    let expr = self.get_expression()?;
+                    self.eat(&TokenType::Separate, "Expected a separator after the statement.")?;
+                    Ok(expr)
                 }
             },
             // &Token::FuncDeclare => self.declare_func(),
@@ -82,14 +104,64 @@ impl <'a>Parser<'a> {
             TokenType::For => todo!(),
             TokenType::Print => self.print(),
             TokenType::BrackOpen => self.code_block(),
-            _ => self.get_expression()
+            TokenType::FuncDeclare => self.declare_fn(),
+            TokenType::Return => self.return_statement(),
+            _ => { 
+                let expr = self.get_expression()?;
+                self.eat(&TokenType::Separate, "Expected a separator after the statement.")?;
+                Ok(expr)
+            }
         }
     }
 
-    fn print(&mut self) -> Result<Node, String> {
-        self.eat(&TokenType::Print, "");
+    fn return_statement(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::Return, "")?;
         let value = self.get_expression()?;
-        self.eat(&TokenType::Separate, "Expected a separator after the statement.");
+        self.eat(&TokenType::Separate, "Expected separator after return statement.")?;
+        Ok(Node::Return {
+            id: self.new_id(),
+            value: Box::new(value)
+        })
+    }
+
+    fn declare_fn(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::FuncDeclare, "")?;
+        let name = self.current().clone();
+
+        self.eat(&TokenType::Name("".to_string()), "Expected a name for the function declaration.")?;
+        self.eat(&TokenType::ParOpen, "Expected an open parenthesis for the function declaration.")?;
+
+        let mut args = Vec::<Token>::new();
+        if self.current()._type != TokenType::ParClose {
+            args.push(self.current().clone());
+            self.eat(&TokenType::Name("".to_string()), "Expected a name for function arguments.")?;
+
+            while self.current()._type == TokenType::Comma {
+                self.eat(&TokenType::Comma, "")?;
+                args.push(self.current().clone());
+                self.eat(&TokenType::Name("".to_string()), "")?;
+            }
+
+            if args.len() > 150 {
+                return Err(Error::Syntax(format!("Cannot have more than 150 arguments in a function declaration. [{}:{}]", self.current().line, self.current().column)));
+            }
+
+        }
+
+        self.eat(&TokenType::ParClose, "Expected closing parenthesis to function declaration.")?;
+        let body = self.statement()?;
+        Ok(Node::DeclareFn {
+            id: self.new_id(),
+            name,
+            args,
+            body: Box::new(body)
+        })
+    }
+
+    fn print(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::Print, "")?;
+        let value = self.get_expression()?;
+        self.eat(&TokenType::Separate, "Expected a separator after the statement.")?;
 
         Ok(Node::Print(
             Box::new(
@@ -98,41 +170,41 @@ impl <'a>Parser<'a> {
         ))
     }
 
-    pub fn declare_var(&mut self) -> Result<Node, String> {
-        self.eat(&TokenType::Declare, "Expected 'let' in front of variable declaration.");
+    pub fn declare_var(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::Declare, "Expected 'let' in front of variable declaration.")?;
         let name = self.current().clone();
 
-        self.eat(&TokenType::Name("".to_string()), "Expected a name after 'let' keyword.");
-        self.eat(&TokenType::Assign, format!("Expected '=' to assign '{:?}' to a value", name).as_str());
+        self.eat(&TokenType::Name("".to_string()), "Expected a name after 'let' keyword.")?;
+        self.eat(&TokenType::Assign, format!("Expected '=' to assign '{:?}' to a value", name).as_str())?;
 
         let value = self.get_expression()?;
-        self.eat(&TokenType::Separate, "Expected a separator after the statement.");
+        self.eat(&TokenType::Separate, "Expected a separator after the statement.")?;
 
         Ok(Node::Declare { name, value: Box::new(value), id: self.new_id() })
     }
 
-    pub fn assign(&mut self) -> Result<Node, String> {
+    pub fn assign(&mut self) -> Result<Node, Error> {
         let name = self.current().clone();
-        self.eat(&TokenType::Name("".to_string()), "Expected a name when assigning a value.");
-        self.eat(&TokenType::Assign, format!("Expected '=' to assign '{:?}' to a value", name).as_str());
+        self.eat(&TokenType::Name("".to_string()), "Expected a name when assigning a value.")?;
+        self.eat(&TokenType::Assign, format!("Expected '=' to assign '{:?}' to a value", name).as_str())?;
         let value = self.get_expression()?;
-        self.eat(&TokenType::Separate, "Expected a separator after the statement.");
+        self.eat(&TokenType::Separate, "Expected a separator after the statement.")?;
 
         Ok(Node::Assign {name, value: Box::new(value), id: self.new_id() })
     }
 
-    pub fn if_statement(&mut self) -> Result<Node, String> {
-        self.eat(&TokenType::If, "Expected 'if' to starting if statement.");
-        self.eat(&TokenType::ParOpen, "Expected open parenthesis to if statement.");
+    pub fn if_statement(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::If, "Expected 'if' to starting if statement.")?;
+        self.eat(&TokenType::ParOpen, "Expected open parenthesis to if statement.")?;
 
         let condition = self.get_expression()?;
-        self.eat(&TokenType::ParClose, "Expected closing parenthesis to if statement.");
+        self.eat(&TokenType::ParClose, "Expected closing parenthesis to if statement.")?;
 
         let body = self.statement()?;
         let mut else_block: Option<Box<Node>> = None;
 
         if self.current()._type == TokenType::Else {
-            self.eat(&TokenType::Else, "Expected else to if statement.");
+            self.eat(&TokenType::Else, "Expected else to if statement.")?;
             else_block = Some(Box::new(self.statement()?));
         }
 
@@ -145,20 +217,20 @@ impl <'a>Parser<'a> {
 
     }
 
-    fn while_statement(&mut self) -> Result<Node, String> {
-        self.eat(&TokenType::While, "Expected 'while' to start of while loop.");
-        self.eat(&TokenType::ParOpen, "Expected '(' to condition of while loop.");
+    fn while_statement(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::While, "Expected 'while' to start of while loop.")?;
+        self.eat(&TokenType::ParOpen, "Expected '(' to condition of while loop.")?;
         let condition = Box::new(self.get_expression()?);
-        self.eat(&TokenType::ParClose, "Expected ')' after condition of while loop.");
+        self.eat(&TokenType::ParClose, "Expected ')' after condition of while loop.")?;
         let body = Box::new(self.statement()?);
         Ok(Node::While {condition, body, id: self.new_id() })
     }
 
-    pub fn get_expression(&mut self) -> Result<Node, String> {
+    pub fn get_expression(&mut self) -> Result<Node, Error> {
         Ok(self.or_statement()?)
     }
 
-    fn or_statement(&mut self) -> Result<Node, String> {
+    fn or_statement(&mut self) -> Result<Node, Error> {
         let mut expr = self.and_statement()?;
 
         while self.current()._type == TokenType::Or {
@@ -177,7 +249,7 @@ impl <'a>Parser<'a> {
         Ok(expr)
     }
 
-    fn and_statement(&mut self) -> Result<Node, String> {
+    fn and_statement(&mut self) -> Result<Node, Error> {
         let mut expr = self.equality()?;
 
         while self.current()._type == TokenType::And {
@@ -196,7 +268,7 @@ impl <'a>Parser<'a> {
         Ok(expr)
     }
 
-    pub fn equality(&mut self) -> Result<Node, String> {
+    pub fn equality(&mut self) -> Result<Node, Error> {
         let mut expr = self.comparison()?;
 
         while matches!(self.current()._type, TokenType::NotEqual | TokenType::Equal) {
@@ -215,7 +287,7 @@ impl <'a>Parser<'a> {
         Ok(expr)
     }
 
-    fn comparison(&mut self) -> Result<Node, String> {
+    fn comparison(&mut self) -> Result<Node, Error> {
         let mut expr = self.term()?;
 
         while matches!(
@@ -239,7 +311,7 @@ impl <'a>Parser<'a> {
         Ok(expr)
     }
 
-    fn term(&mut self) -> Result<Node, String> {
+    fn term(&mut self) -> Result<Node, Error> {
         let mut expr = self.factor()?;
 
         while matches!(
@@ -261,7 +333,7 @@ impl <'a>Parser<'a> {
         Ok(expr)
     }
 
-    fn factor(&mut self) -> Result<Node, String> {
+    fn factor(&mut self) -> Result<Node, Error> {
         let mut expr = self.unary()?;
 
         while matches!(
@@ -274,7 +346,7 @@ impl <'a>Parser<'a> {
             let right = self.unary()?;
             expr = Node::BinaryOperator {
                 left: Box::new(expr),
-                operator: operator,
+                operator,
                 right: Box::new(right),
                 id: self.new_id()
             };
@@ -283,7 +355,7 @@ impl <'a>Parser<'a> {
         Ok(expr)
     }
 
-    fn unary(&mut self) -> Result<Node, String> {
+    fn unary(&mut self) -> Result<Node, Error> {
         if matches!(
             self.current()._type,
             TokenType::Not |
@@ -294,11 +366,36 @@ impl <'a>Parser<'a> {
             let child = self.unary()?;
             return Ok(Node::UnaryOperator { operator: operator, child: Box::new(child), id: self.new_id() })
         } else {
-            return Ok(self.primary()?)
+            return Ok(self.call()?)
         }
     }
 
-    fn primary(&mut self) -> Result<Node, String> {
+    fn call(&mut self) -> Result<Node, Error> {
+        let mut expr = self.primary()?;
+
+        while self.current()._type == TokenType::ParOpen {
+            self.eat(&TokenType::ParOpen, "ajdsflkajdslj")?;
+    
+            if self.current()._type == TokenType::ParClose {
+                self.eat(&TokenType::ParClose, "closing parenthesis immediately after opening")?;
+                expr = Node::FnCall { id: self.new_id(), name: Box::new(expr), args: vec![] };
+            } else {
+                let mut args = vec![self.get_expression()?];
+
+                while self.current()._type == TokenType::Comma {
+                    self.eat(&TokenType::Comma, "comma")?;
+                    args.push(self.get_expression()?);
+                }
+
+                self.eat(&TokenType::ParClose, "Expected closing parenthesis after argument list.")?;
+                expr = Node::FnCall { id: self.new_id(), name: Box::new(expr), args };
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn primary(&mut self) -> Result<Node, Error> {
         let id = self.new_id();
         let expr = match &self.current()._type {
             TokenType::Number(value) => Node::Literal {
@@ -321,8 +418,9 @@ impl <'a>Parser<'a> {
             },
             TokenType::None => Node::Literal {value: Literal::None, id: self.new_id() },
             TokenType::Name(_) => Node::Variable { id: self.new_id(), name: self.current().clone() },
-            _ => return Err(format!("Couldn't identify this token: {:?}", self.current()))
+            _ => return Err(Error::Syntax(format!("Couldn't identify this token: {:?} [{}:{}]", self.current(), self.current().line, self.current().column)))
         };
+
         self.next();
         Ok(expr)
     }

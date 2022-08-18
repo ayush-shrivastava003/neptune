@@ -1,103 +1,206 @@
 use std::collections::HashMap;
-
-use crate::environment::Environment;
-use crate::syntax_tree::{Node, Literal};
-use crate::token::*;
+use crate::{
+    ast::*,
+    token::*,
+    error::Error,
+    function::Function
+};
 
 #[derive(Debug, Clone)]
 pub enum Object { // wrapper for multiple data types
     Number(f64),
     Bool(bool),
     String(String),
-    None
+    None,
+    Function(Function)
 }
+
 pub struct Interpreter {
-    environments: Vec<Environment>,
+    pub environments: Vec<HashMap<String, Object>>,
     pub depths: HashMap<usize, usize>,
-    enviro_idx: usize
+    globals: HashMap<String, Object>
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        let mut environments = vec![];
-        environments.push(Environment::new());
-        Self {
-            environments,
-            depths: HashMap::<usize, usize>::new(),
-            enviro_idx: 0
+        Self { environments: vec![], depths: HashMap::new(), globals: HashMap::new() }
+    }
+
+    pub fn is_truthy(&self, obj: &Object) -> bool {
+        match obj {
+            &Object::Bool(v) => v,
+            &Object::None => false,
+            _ => true
+          }
+    }
+
+    fn lookup(&mut self, name: &Token, id: &usize) -> Result<Object, Error> {
+        let distance = self.depths.get(id);
+        // println!("{:?} ({}) is at a depth of {:?}", name, id, distance);
+        if let None = distance {
+            let obj = self.globals.get(&name.value);
+            if let None = obj {
+                return Err(Error::Runtime(format!("Unkown variable '{}' [{}:{}]", name.value, name.line, name.column)))
+            } else {
+                return Ok(obj.unwrap().clone());
+            }
+        }
+
+        for (i, enviro) in self.environments.iter().rev().enumerate() {
+            if i == distance.unwrap().clone() {
+                let obj = enviro.get(&name.value);
+                return Ok(obj.unwrap().clone())
+            }
+        }
+
+        Ok(Object::None)
+    }
+
+    pub fn run(&mut self, nodes: &Vec<Node>) -> Result<Object, Error> {
+        let f = self.traverse_block(nodes);
+        match f {
+            Err(Error::Runtime(v)) => Err(Error::Runtime(v)),
+            Ok(v) => Ok(v),
+            _ => Ok(Object::None)
         }
     }
 
-    pub fn run(&mut self, expression: Node) -> Result<Object, String> {
-        self.traverse(expression)
-    }
-
-    pub fn resolve(&mut self, expr: usize, depth: usize) {
-        self.depths.insert(expr, depth);
-    }
-
-    fn lookup(&mut self, name: String, depth: usize) -> Result<Object, String> {
-        let distance = self.depths.get(&depth).unwrap();
-        
-        if distance >= &self.environments.len() {
-            return Err(format!("Variable '{}' is not defined in this scope", name))
-        }
-
-        let obj = self.environments[distance.clone()].get(name);
-        Ok(obj.unwrap().clone())
-    }
-    
-    fn is_truthy(&self, expr: &Object) -> bool {
-        return match expr {
-          &Object::Bool(v) => v,
-          &Object::None => false,
-          _ => true
-        }
-    }
-
-    fn current_environment(&mut self) -> &mut Environment {
-        &mut self.environments[self.enviro_idx]
-    }
-
-    fn ancestor(&mut self, distance: usize) -> &mut Environment {
-        &mut self.environments[distance]
-    }
-
-    pub fn traverse(&mut self, node: Node) -> Result<Object, String> {
+    pub fn traverse(&mut self, node: &Node) -> Result<Object, Error> {
         match node {
+            Node::Block(nodes) => {
+                self.environments.push(HashMap::new());
+                // println!("{:?}", self.environments);
+                // println!("\x1b[32mMake (block).\x1b[0m");
+                // println!("after len: {}", self.environments.len());
+                // println!("Made block for: {:#?}", nodes);
+                Ok(self.traverse_block(nodes)?)
+            },
             Node::BinaryOperator {left: l, operator: o, right: r, ..} => Ok(self.binary_operator(l, o, r)?),
             Node::UnaryOperator { operator: o, child: c, .. } => Ok(self.unary(o, c)?),
             Node::Logical {left: l, operator: o, right: r, ..} => Ok(self.logical(l, o, r)?),
             Node::Literal { value: lit, .. } => Ok(self.literal(lit)),
-            Node::Block(nodes) => {
-                for n in nodes {
-                    self.traverse(n)?;
-                }
-                Ok(Object::None)
-            },
-            Node::Declare {name, value, ..} => Ok(self.declare(name, value)?),
+            Node::Declare {name, value, .. } => Ok(self.declare(name, value)?),
             Node::Assign {id, name, value} => Ok(self.assign(id, name, value)?),
             Node::Print(expr) => Ok(self.print(expr)?),
-            Node::Variable { id, name } => Ok(self.lookup(name.value, id)?),
+            Node::Variable { id, name } => Ok(self.variable(name, id)?),
             Node::If { condition, body, else_block, ..} => Ok(self.if_block(condition, body, else_block)?),
-            _=> {println!("Not implemented: {:?}", node); return Ok(Object::None)}
+            Node::While { condition, body, .. } => Ok(self.while_block(&condition, &body)?),
+            Node::DeclareFn { name, args, body, .. } => Ok(self.declare_fn(name, args, body)?),
+            Node::Return { value, .. } => Ok(self.return_statement(value)?),
+            Node::FnCall { name, args, .. } => Ok(self.call(name, args)?),
+            // _ => todo!()
         }
     }
 
-    fn if_block(&mut self, condition: Box<Node>, body: Box<Node>, else_block: Option<Box<Node>>) -> Result<Object, String> {
-        let c = self.traverse(*condition)?;
+    pub fn traverse_block(&mut self, stmts: &Vec<Node>) -> Result<Object, Error> {
+        for stmts in stmts {
+            match self.traverse(stmts) {
+                Err(Error::Runtime(v)) => return Err(Error::Runtime(v)),
+                Err(Error::Return(v)) => {
+                    // println!("\x1b[31mPurge (block).\x1b[0m");
+                    self.environments.pop();
+                    // println!("after len: {}", self.environments.len());
+                    return Err(Error::Return(v))
+                },
+                _ => continue
+            }
+        }
+
+        // println!("\x1b[31mPurge (block).\x1b[0m");
+        self.environments.pop();
+        // println!("after len: {}", self.environments.len());
+        Ok(Object::None)
+    }
+
+    fn call(&mut self, name: &Box<Node>, args: &Vec<Node>) -> Result<Object, Error> {
+        let func = self.traverse(&**name)?;
+        match func {
+            Object::Function(mut f) => {
+                let mut evaled_args = vec![];
+                
+                if args.len() != f.args.len() {
+                    return Err(Error::Runtime(format!("Expected {} arguments, found {}.", f.args.len(), args.len())))
+                }
+
+                for arg in args {
+                    evaled_args.push(self.traverse(arg)?)
+                }
+
+                Ok(f.call(self, evaled_args)?)
+            }
+            _ => return Err(Error::Runtime(format!("Can only call functions, not {:?}", func)))
+        }
+    }
+
+    fn declare_fn(&mut self, name: &Token, args: &Vec<Token>, body: &Box<Node>) -> Result<Object, Error> {
+        let function = Function::new(args.clone(), *body.clone(), name.value.clone());
+        if self.environments.len() == 0 {
+            self.globals.insert(name.value.clone(), Object::Function(function));
+        } else {
+            self.environments.last_mut().unwrap().insert(name.value.clone(), Object::Function(function));
+        }
+        Ok(Object::None)
+    }
+
+    fn return_statement(&mut self, value: &Box<Node>) -> Result<Object, Error> {
+        let v = self.traverse(value)?;
+        Err(Error::Return(v))
+    }
+    
+    pub fn variable(&mut self, name: &Token, id: &usize) -> Result<Object, Error> {
+        self.lookup(&name, id)
+    }
+    
+    pub fn declare(&mut self, name: &Token, value: &Box<Node>) -> Result<Object, Error> {
+        let v = self.traverse(value)?;
+        if self.environments.len() != 0 {
+            self.environments.last_mut().unwrap().insert(name.value.clone(), v);
+        } else {
+            self.globals.insert(name.value.clone(), v);
+        }
+        Ok(Object::None)
+    }
+    
+    fn assign(&mut self, id: &usize, name: &Token, value: &Box<Node>) -> Result<Object, Error> {
+        let v = self.traverse(value)?;
+        let distance = self.depths.get(&id);
+        if let None = distance {
+            self.globals.insert(name.value.clone(), v);
+        } else {
+            for (i, enviro) in self.environments.iter_mut().rev().enumerate() {
+                if i == distance.unwrap().clone() {
+                    enviro.insert(name.value.clone(), v);
+                    break
+                }
+            }
+        }
+        Ok(Object::None)
+    }
+    
+    fn while_block(&mut self, condition: &Box<Node>, body: &Box<Node>) -> Result<Object, Error> {
+        let mut c = self.traverse(condition)?;
+        while self.is_truthy(&c) {
+            self.traverse(&**body)?;
+            c = self.traverse(condition)?;
+        }
+
+        Ok(Object::None)
+    }
+    
+    fn if_block(&mut self, condition: &Box<Node>, body: &Box<Node>, else_block: &Option<Box<Node>>) -> Result<Object, Error> {
+        let c = self.traverse(condition)?;
         if self.is_truthy(&c) {
-            let b = self.traverse(*body)?;
+            let b = self.traverse(body)?;
             return Ok(b)
-        } else if else_block != None {
-            return Ok(self.traverse(*else_block.unwrap())?)
+        } else if else_block != &None {
+            return Ok(self.traverse(else_block.as_ref().unwrap())?)
         } else {
             return Ok(Object::None)
         }
     }
 
-    fn print(&mut self, expr: Box<Node>) -> Result<Object, String> {
-        let value = match self.traverse(*expr)? {
+    fn print(&mut self, expr: &Box<Node>) -> Result<Object, Error> {
+        let value = match self.traverse(expr)? {
             Object::None => "none".to_string(),
             Object::String(s) => s,
             Object::Number(n) => {
@@ -108,7 +211,8 @@ impl Interpreter {
                     number
                 }
             },
-            Object::Bool(b) => b.to_string()
+            Object::Bool(b) => b.to_string(),
+            Object::Function(f) => format!("<fn '{}'>", f.name)
         };
 
         println!("{}", value);
@@ -116,26 +220,9 @@ impl Interpreter {
         Ok(Object::None)
     }
 
-    fn declare(&mut self, name: Token, value: Box<Node>) -> Result<Object, String> {
-        let v = self.traverse(*value)?;
-        let enviro = self.current_environment();
-        enviro.assign(name.value, v);
-
-        Ok(Object::None)
-    }
-
-    #[allow(mutable_borrow_reservation_conflict)]
-    fn assign(&mut self, id: usize, name: Token, value: Box<Node>) -> Result<Object, String> {
-        let v = self.traverse(*value)?;
-        let distance = self.depths.get(&id).unwrap();
-        
-        self.ancestor(distance.clone()).assign(name.value, v);
-        Ok(Object::None)
-    }
-
-    fn logical(&mut self, left: Box<Node>, operator: Token, right: Box<Node>) -> Result<Object, String> {
-        let l = self.traverse(*left)?;
-        let r = self.traverse(*right)?;
+    fn logical(&mut self, left: &Box<Node>, operator: &Token, right: &Box<Node>) -> Result<Object, Error> {
+        let l = self.traverse(left)?;
+        let r = self.traverse(right)?;
         
         if operator._type == TokenType::Or {
             if self.is_truthy(&l) {
@@ -149,80 +236,79 @@ impl Interpreter {
 
     }
 
-    fn binary_operator(&mut self, left: Box<Node>, operator: Token, right: Box<Node>) -> Result<Object, String> {
-        let l = self.traverse(*left)?;
-        let r = self.traverse(*right)?;
+    fn binary_operator(&mut self, left: &Box<Node>, operator: &Token, right: &Box<Node>) -> Result<Object, Error> {
+        let l = self.traverse(left)?;
+        let r = self.traverse(right)?;
 
         return match operator._type {
             TokenType::Plus => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Number(left_val + right_val)),
                 (Object::String(left_val), Object::String(right_val)) => Ok(Object::String(left_val + &right_val)),
-                _ => Err(String::from("Left and right values must both be numbers or strings for additon."))
+                _ => Err(Error::Runtime(format!("Left and right values must both be numbers or strings for additon. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Minus => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Number(left_val - right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for subtraction."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for subtraction. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Multiply => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Number(left_val * right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for multiplication."))
+                (Object::String(left_val), Object::Number(right_val)) => Ok(Object::String(left_val.repeat(right_val as usize))),
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for multiplication. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Divide => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Number(left_val / right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for division."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for division. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Greater => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Bool(left_val > right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for comparions."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for comparions. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Less => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Bool(left_val < right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for comparions."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for comparions. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::GreraterEqual => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Bool(left_val >= right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for comparions."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for comparions. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::LessEqual => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Bool(left_val <= right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for comparions."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for comparions. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Equal => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Bool(left_val == right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for comparions."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for comparions. [{}:{}]", operator.line, operator.column)))
             },
             TokenType::NotEqual => match (l, r) {
                 (Object::Number(left_val), Object::Number(right_val)) => Ok(Object::Bool(left_val != right_val)),
-                _=> Err(String::from("Left and right values must both be numbers for comparions."))
+                _=> Err(Error::Runtime(format!("Left and right values must both be numbers for comparions. [{}:{}]", operator.line, operator.column)))
             },
-            _ => Err(format!("Operator not implemented: {:?}", operator))
+            _ => Err(Error::Runtime(format!("Operator not implemented: {:?}", operator)))
         }
 
     }
 
-    fn unary(&mut self, operator: Token, c: Box<Node>) -> Result<Object, String> {
-        let child = self.traverse(*c)?;
+    fn unary(&mut self, operator: &Token, c: &Box<Node>) -> Result<Object, Error> {
+        let child = self.traverse(c)?;
 
         return match operator._type {
             TokenType::Minus => match child {
                 Object::Number(v) => Ok(Object::Number(-(v))),
-                _ => Err(String::from("Value must be number when negating (-)."))
+                _ => Err(Error::Runtime(format!("Value must be number when negating (-). [{}:{}]", operator.line, operator.column)))
             },
             TokenType::Not => {
                 let truthy = self.is_truthy(&child);
                 return Ok(Object::Bool(!truthy))
             },
-            _ => return Err(format!("Unrecognized unary operator: {:?}", operator))
+            _ => return Err(Error::Runtime(format!("Unrecognized unary operator: {:?} [{}:{}]", operator, operator.line, operator.column)))
         }
-
-        // return Ok(Some(Object::Bool(true)))
     }
 
-    fn literal(&self, node: Literal) -> Object {
+    fn literal(&self, node: &Literal) -> Object {
         return match node {
-            Literal::Number(v) => Object::Number(v),
-            Literal::Bool(v) => Object::Bool(v),
-            Literal::String(v) => Object::String(v),
+            Literal::Number(v) => Object::Number(*v),
+            Literal::Bool(v) => Object::Bool(*v),
+            Literal::String(v) => Object::String(v.clone().to_string()),
             Literal::None => Object::None
         }
     }

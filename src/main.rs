@@ -1,32 +1,32 @@
-// For simple, more readable code (i hope), see ayush-shrivastava003/language.
-// This is my more complicated implementation written in Rust instead of Python.
-use std::fs;
-extern crate neptune as this;
-use this::{lexer::Lexer, parser::Parser, interpreter::Interpreter, semantic_analyzer::SemanticAnalyzer};
+extern crate neptune;
+use neptune::{
+    lexer::Lexer,
+    parser::Parser,
+    resolver::Resolver,
+    interpreter::*,
+    error::Error
+};
+use std::{fs::read_to_string, env::args};
+
+fn run(file: String) -> Result<Object, Error> {
+    let tokens = Lexer::new(&file).tokenize()?;
+    let ast = Parser::new(&tokens).parse()?;
+    let mut interpreter = Interpreter::new();
+    Resolver::new(&mut interpreter).resolve_block(&ast)?;
+    interpreter.run(&ast)
+}
 
 fn main() {
-    match fs::read_to_string("test.nt") {
-        Ok(contents) => {
-            println!("{}", contents);
-            let mut lexer = Lexer::new(contents);
-            match lexer.tokenize() {
-                Ok(tokens) => {
-                    match Parser::new(&tokens).parse() {
-                        Ok(v) => {
-                            let mut interpreter = Interpreter::new();
-                            let mut semantic_analyzer = SemanticAnalyzer::new(&mut interpreter);
-                            semantic_analyzer.resolve(&v);
-                            match interpreter.run(v) {
-                                Ok(v) => println!("Final value: {:?}", v),
-                                Err(msg) => println!("Runtime error: {}", msg)
-                            }
-                        },
-                        Err(msg) => return println!("Syntax error: {}", msg)
-                    }
-                }
-                Err(msg) => return println!("{}", msg),
-            };
-        },
-        Err(msg) => println!("A problem occured with opening the file: {}", msg)
+    std::env::set_var("RUST_BACKTRACE", "1");
+    let args: Vec<String> = args().collect();
+    if args.len() == 1 {
+        return println!("CLI is not yet implemented. Please supply a file to run.")
     }
+    let file = read_to_string(args[1].as_str()).expect("Error reading the file");
+
+    match run(file) {
+        Err(Error::Runtime(v)) => println!("\x1b[31mRuntime Error: {}\x1b[0m", v),
+        Err(Error::Syntax(v)) => println!("\x1b[31mSyntax error: {}\x1b[0m", v),
+        _ => return
+    };
 }
