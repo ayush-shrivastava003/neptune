@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::{
     ast::*,
     token::*,
@@ -6,7 +7,7 @@ use crate::{
     function::Function
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Object { // wrapper for multiple data types
     Number(f64),
     Bool(bool),
@@ -23,7 +24,27 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self { environments: vec![], depths: HashMap::new(), globals: HashMap::new() }
+        let mut globals: HashMap<String, Object> = HashMap::new();
+        globals.insert("print".to_string(), Object::Function(Function::Native {
+            arg_len: 1,
+            body: Box::new(|args| {
+                println!("{}", args[0]);
+                Ok(Object::None)
+            }),
+            name: "print".to_string()
+        }));
+        globals.insert("time".to_string(), Object::Function(Function::Native {
+            arg_len: 0,
+            body: Box::new(|_args| {
+                Ok(Object::Number(
+                    SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("failure!").as_millis() as f64
+                ))
+            }),
+            name: "time".to_string()
+        }));
+        Self { environments: vec![], depths: HashMap::new(), globals }
     }
 
     pub fn is_truthy(&self, obj: &Object) -> bool {
@@ -81,7 +102,6 @@ impl Interpreter {
             Node::Literal { value: lit, .. } => Ok(self.literal(lit)),
             Node::Declare {name, value, .. } => Ok(self.declare(name, value)?),
             Node::Assign {id, name, value} => Ok(self.assign(id, name, value)?),
-            Node::Print(expr) => Ok(self.print(expr)?),
             Node::Variable { id, name } => Ok(self.variable(name, id)?),
             Node::If { condition, body, else_block, ..} => Ok(self.if_block(condition, body, else_block)?),
             Node::While { condition, body, .. } => Ok(self.while_block(&condition, &body)?),
@@ -112,28 +132,45 @@ impl Interpreter {
         Ok(Object::None)
     }
 
-    fn call(&mut self, name: &Box<Node>, args: &Vec<Node>) -> Result<Object, Error> {
+    fn call(&mut self, name: &Box<Node>, given_args: &Vec<Node>) -> Result<Object, Error> {
         let func = self.traverse(&**name)?;
         match func {
             Object::Function(mut f) => {
-                let mut evaled_args = vec![];
+                match f {
+                    Function::UserDefined { ref args, ..} => {
+                        let mut evaled_args = vec![];
                 
-                if args.len() != f.args.len() {
-                    return Err(Error::Runtime(format!("Expected {} arguments, found {}.", f.args.len(), args.len())))
-                }
+                        if given_args.len() != args.len() {
+                            return Err(Error::Runtime(format!("Expected {} arguments, found {}.", args.len(), given_args.len())))
+                        }
+        
+                        for arg in given_args {
+                            evaled_args.push(self.traverse(arg)?)
+                        }
+        
+                        Ok(f.call(self, evaled_args)?)
+                    },
+                    Function::Native { arg_len, .. } => {
+                        let mut evaled_args = vec![];
 
-                for arg in args {
-                    evaled_args.push(self.traverse(arg)?)
-                }
+                        if given_args.len() != arg_len {
+                            return Err(Error::Runtime(format!("Expected {} arguments, found {}.", arg_len, given_args.len())))
+                        }
 
-                Ok(f.call(self, evaled_args)?)
+                        for arg in given_args {
+                            evaled_args.push(self.traverse(arg)?)
+                        }
+
+                        Ok(f.call(self, evaled_args)?)
+                    }
+                }
             }
-            _ => return Err(Error::Runtime(format!("Can only call functions, not {:?}", func)))
+            _ => return Err(Error::Runtime(format!("Can only call functions, not {}", func)))
         }
     }
 
     fn declare_fn(&mut self, name: &Token, args: &Vec<Token>, body: &Box<Node>) -> Result<Object, Error> {
-        let function = Function::new(args.clone(), *body.clone(), name.value.clone());
+        let function = Function::UserDefined { args: args.clone(), body: *body.clone(), name: name.clone() };
         if self.environments.len() == 0 {
             self.globals.insert(name.value.clone(), Object::Function(function));
         } else {
@@ -197,27 +234,6 @@ impl Interpreter {
         } else {
             return Ok(Object::None)
         }
-    }
-
-    fn print(&mut self, expr: &Box<Node>) -> Result<Object, Error> {
-        let value = match self.traverse(expr)? {
-            Object::None => "none".to_string(),
-            Object::String(s) => s,
-            Object::Number(n) => {
-                let number = n.to_string();
-                if number.ends_with(".0") {
-                    number.strip_suffix(".0").unwrap().to_string()
-                } else {
-                    number
-                }
-            },
-            Object::Bool(b) => b.to_string(),
-            Object::Function(f) => format!("<fn '{}'>", f.name)
-        };
-
-        println!("{}", value);
-
-        Ok(Object::None)
     }
 
     fn logical(&mut self, left: &Box<Node>, operator: &Token, right: &Box<Node>) -> Result<Object, Error> {
@@ -310,6 +326,25 @@ impl Interpreter {
             Literal::Bool(v) => Object::Bool(*v),
             Literal::String(v) => Object::String(v.clone().to_string()),
             Literal::None => Object::None
+        }
+    }
+}
+
+impl std::fmt::Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Object::Bool(b) => write!(f, "{}", b),
+            Object::Function(func) => write!(f, "{}", func),
+            Object::Number(n) => {
+                let number = n.to_string();
+                if number.ends_with(".0") {
+                    write!(f, "{}", number.strip_suffix(".0").unwrap().to_string())
+                } else {
+                    write!(f, "{}", number)
+                }
+            },
+            Object::String(s) => write!(f, "{}", s),
+            Object::None => write!(f, "none")
         }
     }
 }

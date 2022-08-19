@@ -97,12 +97,9 @@ impl <'a>Parser<'a> {
                     Ok(expr)
                 }
             },
-            // &Token::FuncDeclare => self.declare_func(),
-            // &Token::Return => self.return(),
             TokenType::If => self.if_statement(),
             TokenType::While => self.while_statement(),
-            TokenType::For => todo!(),
-            TokenType::Print => self.print(),
+            TokenType::For => self.for_statement(),
             TokenType::BrackOpen => self.code_block(),
             TokenType::FuncDeclare => self.declare_fn(),
             TokenType::Return => self.return_statement(),
@@ -112,6 +109,30 @@ impl <'a>Parser<'a> {
                 Ok(expr)
             }
         }
+    }
+
+    fn for_statement(&mut self) -> Result<Node, Error> {
+        self.eat(&TokenType::For, "")?;
+        self.eat(&TokenType::ParOpen, "Expected open parenthesis to for loop initializer")?;
+
+        let var = self.declare_var()?;
+        // self.eat(&TokenType::Separate, "Expected separator after for loop variable initializer.")?;
+        
+        let condition = Box::new(self.get_expression()?);
+        self.eat(&TokenType::Separate, "Expected separator after for loop condition.")?;
+
+        let increment = self.assign()?;
+        // self.eat(&TokenType::Separate, "Expected separator after for loop increment.")?;
+        self.eat(&TokenType::ParClose, "Expected close parenthesis to for loop initializer")?;
+        
+        let body = Box::new(Node::Block(vec![self.statement()?, increment]));
+        
+        let while_loop = Node::While {
+            id: self.new_id(),
+            condition,
+            body
+        };
+        Ok(Node::Block(vec![var, while_loop]))
     }
 
     fn return_statement(&mut self) -> Result<Node, Error> {
@@ -156,18 +177,6 @@ impl <'a>Parser<'a> {
             args,
             body: Box::new(body)
         })
-    }
-
-    fn print(&mut self) -> Result<Node, Error> {
-        self.eat(&TokenType::Print, "")?;
-        let value = self.get_expression()?;
-        self.eat(&TokenType::Separate, "Expected a separator after the statement.")?;
-
-        Ok(Node::Print(
-            Box::new(
-                value
-            )
-        ))
     }
 
     pub fn declare_var(&mut self) -> Result<Node, Error> {

@@ -66,7 +66,6 @@ pub enum Node {
         value: Box<Node>
     },
     Block(Vec<Node>),
-    Print(Box<Node>)
 }
 
 impl fmt::Display for Node {
@@ -84,7 +83,6 @@ impl fmt::Display for Node {
             Node::DeclareFn { name, .. } => write!(f, "fn {}", name.value),
             Node::FnCall { name, args, ..} => write!(f, "{}({:?})", name, args),
             Node::Return { value, .. } => write!(f, "return {}", value),
-            Node::Print(value) => write!(f, "print {}", value),
             Node::Block(v) => write!(f, "{:?}", v)
         }   
     }

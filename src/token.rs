@@ -35,7 +35,6 @@ pub enum TokenType {
     FuncDeclare,
     Declare,
     Return,
-    Print,
     Bool(bool),
     Separate,
     Eof,

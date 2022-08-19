@@ -82,7 +82,6 @@ impl <'a>Resolver<'a> {
             Node::If { condition, body, else_block, .. } => Ok(self.if_block(condition, body, else_block)?),
             Node::While { condition, body, .. } => Ok(self.while_block(condition, body)?),
             Node::Variable {id, name} => Ok(self.variable(id, name)?),
-            Node::Print(expr) => self.resolve(expr),
             Node::DeclareFn { id, name, args, body } => Ok(self.declare_fn(id, name, args, body)?),
             Node::Return { value, .. } => self.return_statement(value),
             Node::FnCall { name, args, .. } => self.call(name, args),

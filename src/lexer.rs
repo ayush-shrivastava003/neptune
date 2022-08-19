@@ -68,7 +68,6 @@ impl <'a>Lexer<'a> {
             "fn" => TokenType::FuncDeclare,
             "let" => TokenType::Declare,
             "return" => TokenType::Return,
-            "print" => TokenType::Print,
             "or" => TokenType::Or,
             "and" => TokenType::And,
             "true" => TokenType::Bool(true),

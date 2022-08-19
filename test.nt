@@ -1,38 +1,44 @@
 let x = 10;
-print x;
+print(x);
 
 while (x <= 50) {
     if (x == 25.000000000000107) {
         let y = x;
-        print "Y IS:";
-        print y;
+        print("Y IS:");
+        print(y);
     }
 
-    print x;
+    print(x);
     x = x + 1;
 }
 
 let n = 10;
 if (n >= 1) {
-    print "n is less than or equal to 1";
-    print x;
+    print("n is less than or equal to 1");
+    print(x);
 }
 
 let x = 10;
 
 while (x > 0) {
-    print x;
+    print(x);
     x = x - 1;
     let y = 10;
 }
 
 fn hello(a, b, c, d, e) {
-    print 298429085398459083439248076029487509375;
+    print(298429085398459083439248076029487509375);
     fn yello() {
-        print "YOU FOUND THE SECRET FUNCTION YAYAYAYAYAYY";
+        print("YOU FOUND THE SECRET FUNCTION YAYAYAYAYAYY");
     }
     return yello;
 }
 
-print hello;
+print(hello);
 hello(1, 2, 3, 4, 5)();
+
+let x = none;
+print(x);
+x = 39240238;
+print(x);
+print(print);
