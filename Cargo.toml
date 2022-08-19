@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 line-col = "0.2.1"
+rustyline = "10.0.0"

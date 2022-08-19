@@ -11,7 +11,6 @@ while (x <= 50) {
     print(x);
     x = x + 1;
 }
-
 let n = 10;
 if (n >= 1) {
     print("n is less than or equal to 1");

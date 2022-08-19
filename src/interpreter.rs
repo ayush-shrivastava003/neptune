@@ -39,7 +39,7 @@ impl Interpreter {
                 Ok(Object::Number(
                     SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .expect("failure!").as_millis() as f64
+                    .expect("failure!").as_secs_f64() as f64
                 ))
             }),
             name: "time".to_string()
