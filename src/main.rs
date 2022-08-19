@@ -67,6 +67,8 @@ fn run_prompt() {
             Err(e) => { println!("Unexpected error: {}", e); break }
         }
     }
+
+    editor.save_history("npt-history.txt").expect("Something went wrong while saving the history.");
 }
 
 fn main() {
